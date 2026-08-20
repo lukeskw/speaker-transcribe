@@ -64,6 +64,51 @@ def transcribe_words(audio: Path, model_name: str, device: str, fp16: bool,
     return words
 
 
+def diarize(audio: Path, hf_token: str, device: str,
+            num_speakers: int | None, min_speakers: int | None,
+            max_speakers: int | None) -> list[dict]:
+    """Run pyannote speaker diarization. Returns [{'start','end','speaker'}].
+
+    Reads audio via soundfile into an in-memory waveform dict, avoiding
+    pyannote 4.x's torchcodec dependency (which has no ROCm-compatible build).
+    """
+    import soundfile as sf
+    import torch
+    from pyannote.audio import Pipeline
+
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1", token=hf_token,
+    )
+    if pipeline is None:
+        die("pyannote failed to load — HF token invalid or model license not "
+            "accepted. See README.md (accept speaker-diarization-3.1, "
+            "segmentation-3.0, and speaker-diarization-community-1).")
+    pipeline.to(torch.device(device))
+
+    data, sr = sf.read(str(audio), dtype="float32", always_2d=True)  # (samples, channels)
+    waveform = torch.from_numpy(data.T).contiguous()  # (channels, samples)
+    audio_in = {"waveform": waveform, "sample_rate": sr}
+
+    kwargs: dict = {}
+    if num_speakers is not None:
+        kwargs["num_speakers"] = num_speakers
+    else:
+        if min_speakers is not None:
+            kwargs["min_speakers"] = min_speakers
+        if max_speakers is not None:
+            kwargs["max_speakers"] = max_speakers
+
+    output = pipeline(audio_in, **kwargs)
+    # pyannote 4.x returns a DiarizeOutput dataclass; older returned an Annotation.
+    annotation = getattr(output, "speaker_diarization", output)
+    turns = [
+        {"start": seg.start, "end": seg.end, "speaker": label}
+        for seg, _, label in annotation.itertracks(yield_label=True)
+    ]
+    turns.sort(key=lambda t: t["start"])
+    return turns
+
+
 def extract_audio(src: Path, dst: Path) -> None:
     """Extract mono 16 kHz WAV — the format Whisper wants."""
     cmd = [
