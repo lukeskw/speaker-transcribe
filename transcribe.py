@@ -145,9 +145,7 @@ def assign_speakers(words: list[dict], turns: list[dict]) -> list[dict]:
     return out
 
 
-def build_transcript(result_json: Path, show_ts: bool) -> str:
-    data = json.loads(result_json.read_text())
-    segments = data.get("segments", [])
+def build_transcript(segments: list[dict], show_ts: bool) -> str:
     if not segments:
         return ""
 
@@ -161,18 +159,19 @@ def build_transcript(result_json: Path, show_ts: bool) -> str:
             return
         speaker = cur_speaker or "SPEAKER_?"
         text = " ".join(t.strip() for t in buf if t.strip())
+        if not text:
+            return
         prefix = f"[{fmt_ts(seg_start)}] " if show_ts else ""
         lines.append(f"{prefix}{speaker}: {text}")
 
     for seg in segments:
         spk = seg.get("speaker", "SPEAKER_?")
-        text = seg.get("text", "")
         if spk != cur_speaker:
             flush()
             cur_speaker = spk
             buf = []
             seg_start = seg.get("start", 0.0)
-        buf.append(text)
+        buf.append(seg.get("text", ""))
     flush()
 
     return "\n\n".join(lines)
