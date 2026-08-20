@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import torch
 from pathlib import Path
 
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma"}
@@ -36,14 +37,13 @@ def require(cmd: str, hint: str) -> None:
         die(f"'{cmd}' not found on PATH. {hint}")
 
 
-def detect_device(requested: str) -> tuple[str, str]:
-    """Return (device, compute_type). 'auto' -> cuda if an NVIDIA GPU is visible."""
+def detect_device(requested: str) -> tuple[str, bool]:
+    """Return (device, fp16). 'auto' -> cuda if torch sees a GPU (incl. ROCm)."""
     if requested == "auto":
-        device = "cuda" if shutil.which("nvidia-smi") else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     else:
         device = requested
-    compute_type = "float16" if device == "cuda" else "int8"
-    return device, compute_type
+    return device, device == "cuda"
 
 
 def extract_audio(src: Path, dst: Path) -> None:
