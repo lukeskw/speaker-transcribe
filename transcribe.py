@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import torch
+import whisper
 from pathlib import Path
 
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma"}
@@ -44,6 +45,23 @@ def detect_device(requested: str) -> tuple[str, bool]:
     else:
         device = requested
     return device, device == "cuda"
+
+
+def transcribe_words(audio: Path, model_name: str, device: str, fp16: bool,
+                     language: str | None) -> list[dict]:
+    """Transcribe with per-word timestamps. Returns [{'start','end','text'}]."""
+    model = whisper.load_model(model_name, device=device)
+    result = model.transcribe(
+        str(audio), fp16=fp16, word_timestamps=True, language=language,
+    )
+    words: list[dict] = []
+    for seg in result.get("segments", []):
+        for w in seg.get("words", []):
+            text = w.get("word", "").strip()
+            if not text:
+                continue
+            words.append({"start": w["start"], "end": w["end"], "text": text})
+    return words
 
 
 def extract_audio(src: Path, dst: Path) -> None:
