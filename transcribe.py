@@ -106,6 +106,45 @@ def fmt_ts(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
+    return max(0.0, min(a_end, b_end) - max(a_start, b_start))
+
+
+def _gap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:
+    if a_end < b_start:
+        return b_start - a_end
+    if b_end < a_start:
+        return a_start - b_end
+    return 0.0
+
+
+def assign_speakers(words: list[dict], turns: list[dict]) -> list[dict]:
+    """Attach a 'speaker' to each word by max time-overlap with diarization turns.
+
+    No overlap -> nearest turn by gap. No turns -> 'SPEAKER_?'.
+    Returns a new list; does not mutate the input words.
+    """
+    out: list[dict] = []
+    for w in words:
+        speaker = "SPEAKER_?"
+        if turns:
+            best_overlap = 0.0
+            best = None
+            for t in turns:
+                ov = _overlap(w["start"], w["end"], t["start"], t["end"])
+                if ov > best_overlap:
+                    best_overlap = ov
+                    best = t
+            if best is None:
+                best = min(
+                    turns,
+                    key=lambda t: _gap(w["start"], w["end"], t["start"], t["end"]),
+                )
+            speaker = best["speaker"]
+        out.append({**w, "speaker": speaker})
+    return out
+
+
 def build_transcript(result_json: Path, show_ts: bool) -> str:
     data = json.loads(result_json.read_text())
     segments = data.get("segments", [])
