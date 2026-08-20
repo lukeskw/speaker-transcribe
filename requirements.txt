@@ -1,0 +1,3 @@
+# Core: WhisperX bundles faster-whisper (transcription) + pyannote (diarization)
+# + wav2vec alignment. This one dep pulls torch etc.
+whisperx>=3.1.1
