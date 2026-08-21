@@ -1,5 +1,9 @@
-# Core: WhisperX bundles faster-whisper (transcription) + pyannote (diarization)
-# + wav2vec alignment. This one dep pulls torch etc.
-whisperx>=3.1.1
+# Transcription + diarization. torch / torchaudio / triton are NOT listed here —
+# install them FIRST from AMD's ROCm repo (see README "Install"). Installing
+# torch from PyPI would replace the ROCm build with a CPU/CUDA one and break GPU.
+# Note: torchcodec is intentionally NOT used (it has no ROCm-compatible build);
+# pyannote reads audio via soundfile instead.
+openai-whisper>=20250625
 pyannote.audio>=4,<5
 soundfile>=0.12
+numpy>=1.26
