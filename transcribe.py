@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 speaker-transcribe — extract audio from a video and produce a speaker-labeled
-transcript ("who said what") using ffmpeg + WhisperX (Whisper + pyannote diarization).
+transcript ("who said what") using ffmpeg + openai-whisper + pyannote diarization.
 
 All local, all free. Requires a (free) Hugging Face token to download the
 pyannote diarization models — see README.md.
@@ -15,7 +15,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -24,9 +23,6 @@ import tempfile
 import torch
 import whisper
 from pathlib import Path
-
-AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma"}
-
 
 def die(msg: str, code: int = 1) -> None:
     print(f"error: {msg}", file=sys.stderr)
@@ -120,44 +116,6 @@ def extract_audio(src: Path, dst: Path) -> None:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         die(f"ffmpeg failed:\n{proc.stderr.strip()}")
-
-
-def run_whisperx(audio: Path, outdir: Path, args, device: str, compute_type: str) -> Path:
-    cmd = [
-        "whisperx", str(audio),
-        "--model", args.model,
-        "--device", device,
-        "--compute_type", compute_type,
-        "--output_dir", str(outdir),
-        "--output_format", "json",
-        "--diarize",
-        "--hf_token", args.hf_token,
-    ]
-    if args.language:
-        cmd += ["--language", args.language]
-
-    # Speaker-count controls. --speakers N pins both bounds.
-    if args.speakers is not None:
-        cmd += ["--min_speakers", str(args.speakers), "--max_speakers", str(args.speakers)]
-    else:
-        if args.min_speakers is not None:
-            cmd += ["--min_speakers", str(args.min_speakers)]
-        if args.max_speakers is not None:
-            cmd += ["--max_speakers", str(args.max_speakers)]
-
-    print(f"[whisperx] model={args.model} device={device} ...", file=sys.stderr)
-    proc = subprocess.run(cmd)
-    if proc.returncode != 0:
-        die("whisperx failed (see output above)")
-
-    # whisperx names output after the audio file's stem.
-    result = outdir / f"{audio.stem}.json"
-    if not result.exists():
-        cands = list(outdir.glob("*.json"))
-        if not cands:
-            die("whisperx produced no JSON output")
-        result = cands[0]
-    return result
 
 
 def fmt_ts(seconds: float) -> str:
@@ -280,30 +238,33 @@ def main(argv=None) -> None:
     if args.speakers is not None and (args.min_speakers or args.max_speakers):
         die("--speakers is mutually exclusive with --min-speakers/--max-speakers")
 
-    require("whisperx", "Install it: pip install whisperx  (see README.md)")
-
-    device, compute_type = detect_device(args.device)
+    device, fp16 = detect_device(args.device)
 
     out_path = args.output or args.input.with_suffix(".transcript.txt")
 
     with tempfile.TemporaryDirectory(prefix="sptr_") as tmp:
         tmpdir = Path(tmp)
 
-        # Skip extraction if the input is already audio.
-        if args.input.suffix.lower() in AUDIO_EXTS:
-            audio = args.input
-        else:
-            require("ffmpeg", "Install it: sudo apt install ffmpeg  (or brew install ffmpeg)")
-            audio = tmpdir / f"{args.input.stem}.wav"
-            print(f"[ffmpeg] extracting audio -> {audio.name}", file=sys.stderr)
-            extract_audio(args.input, audio)
-            if args.keep_audio:
-                kept = out_path.with_suffix(".wav")
-                shutil.copy(audio, kept)
-                print(f"[ffmpeg] kept audio: {kept}", file=sys.stderr)
+        require("ffmpeg", "Install it: sudo apt install ffmpeg  (or brew install ffmpeg)")
+        audio = tmpdir / f"{args.input.stem}.wav"
+        print(f"[ffmpeg] normalizing audio -> {audio.name}", file=sys.stderr)
+        extract_audio(args.input, audio)
+        if args.keep_audio:
+            kept = out_path.with_suffix(".wav")
+            shutil.copy(audio, kept)
+            print(f"[ffmpeg] kept audio: {kept}", file=sys.stderr)
 
-        result_json = run_whisperx(audio, tmpdir, args, device, compute_type)
-        transcript = build_transcript(result_json, show_ts=not args.no_timestamps)
+        print(f"[whisper] model={args.model} device={device} transcribing ...", file=sys.stderr)
+        words = transcribe_words(audio, args.model, device, fp16, args.language)
+        if not words:
+            die("transcript is empty — no speech detected?")
+
+        print("[pyannote] diarizing ...", file=sys.stderr)
+        turns = diarize(audio, args.hf_token, device,
+                        args.speakers, args.min_speakers, args.max_speakers)
+
+        merged = assign_speakers(words, turns)
+        transcript = build_transcript(merged, show_ts=not args.no_timestamps)
 
     if not transcript:
         die("transcript is empty — no speech detected?")
