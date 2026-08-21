@@ -124,7 +124,7 @@ Send it to your Linux home instead with `-o ~/transcript.txt`.
 
 ## Optional: polish labels with an LLM
 
-WhisperX gives you `SPEAKER_00` / `SPEAKER_01`. To turn those into real names,
+pyannote gives you `SPEAKER_00` / `SPEAKER_01`. To turn those into real names,
 pipe the transcript to Claude/GPT with a prompt like:
 *"Relabel the speakers using context; SPEAKER_00 is the interviewer."*
 Diarization (who spoke) is an audio problem the LLM can't do — but relabeling and
