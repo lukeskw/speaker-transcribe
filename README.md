@@ -72,6 +72,19 @@ picks the GPU when torch sees one.
 
 ## Usage
 
+> **Activate the ROCm venv first.** `./transcribe.py` runs under whatever
+> `python3` is on your `PATH` (its shebang is `/usr/bin/env python3`), so it
+> needs `.venv-rocm` active or it won't find `torch`:
+>
+> ```bash
+> source .venv-rocm/bin/activate
+> ```
+>
+> If you see `ModuleNotFoundError: No module named 'torch'`, a different (or
+> stale) venv is active — `deactivate` and re-activate `.venv-rocm`. To skip
+> activation entirely, call the interpreter directly:
+> `.venv-rocm/bin/python transcribe.py <args>`.
+
 ```bash
 # auto-detect speaker count
 ./transcribe.py interview.mp4
